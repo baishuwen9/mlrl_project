@@ -23,7 +23,7 @@ parser.add_argument('--path_length', type=int, default=1000, help='maximum episo
 parser.add_argument('--layer_size', nargs='+', type=int, default=[100,100,100], help='layer definition')
 parser.add_argument('--if_render', type=int, default=0, help='Should we render?')
 parser.add_argument('--after_render', type=int, default=100, help='After how many to animate')
-parser.add_argument('--n_exps', type=int, default=1, help='Number of training instances to run')
+parser.add_argument('--n_exps', type=int, default=5, help='Number of training instances to run')
 parser.add_argument('--n_itr', type=int, default=25, help='Number of iterations of the alternating optimization')
 parser.add_argument('--n_pro_itr', type=int, default=1, help='Number of iterations for the portagonist')
 parser.add_argument('--n_adv_itr', type=int, default=1, help='Number of interations for the adversary')
