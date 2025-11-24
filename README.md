@@ -1,5 +1,5 @@
 
-docker build -t rllab-adv
+docker build -t rllab-adv .
 
 docker run -it --rm \
   -v /Users/baishuwen/Desktop/mlrl_project/src:/workspace \

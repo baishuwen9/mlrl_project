@@ -35,6 +35,7 @@ parser.add_argument('--step_size', type=float, default=0.01, help='kl step size 
 parser.add_argument('--gae_lambda', type=float, default=0.97, help='gae_lambda for learner')
 parser.add_argument('--reset_noise_scale', type=float, default=None, help='reset noise scale for environment initialization')
 parser.add_argument('--folder', type=str, default=os.environ['HOME'], help='folder to save result in')
+parser.add_argument('--use_calib', type=int, default=0, help='whether to use linear calibrator on adversary policy (0/1)')
 
 
 
@@ -57,6 +58,7 @@ step_size = args.step_size
 gae_lambda = args.gae_lambda
 reset_noise_scale = args.reset_noise_scale
 save_dir = args.folder
+use_calib = bool(args.use_calib)
 
 ## Initializing summaries for the tests ##
 const_test_rew_summary = []
@@ -98,7 +100,8 @@ for ne in range(n_exps):
     adv_policy = GaussianMLPPolicy(
         env_spec=env.spec,
         hidden_sizes=layer_size,
-        is_protagonist=False
+        is_protagonist=False,
+        use_linear_calib=use_calib
     )
     adv_baseline = LinearFeatureBaseline(env_spec=env.spec)
 

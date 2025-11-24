@@ -112,7 +112,10 @@ def main():
 
     # Define test groups: (title, baseline_keys, calib_keys)
     groups = [
-        ('Zero / Const Adv', ['zero_test'], ['const_test']),
+        # baseline: 由 train_adversary.py 产生，键名是 'zero_test'
+        # calib: 可能来自 rarl_with_calib.py（键名 'const_test'），
+        #        也可能来自带 TRPO 校准的 train_adversary.py（键名仍然是 'zero_test'）
+        ('Zero / Const Adv', ['zero_test'], ['const_test', 'zero_test']),
         ('Random Adv', ['rand_test'], ['rand_test']),
         ('Step Adv', ['step_test'], ['step_test']),
         ('Rand Step Adv', ['rand_step_test'], ['rand_step_test']),
