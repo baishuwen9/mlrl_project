@@ -35,7 +35,6 @@ class GaussianMLPPolicy(StochasticPolicy, LasagnePowered, Serializable):
             std_network=None,
             dist_cls=DiagonalGaussian,
             is_protagonist=True,
-            use_linear_calib=False,
     ):
         """
         :param env_spec:
@@ -54,7 +53,6 @@ class GaussianMLPPolicy(StochasticPolicy, LasagnePowered, Serializable):
         :return:
         """
         Serializable.quick_init(self, locals())
-        self.use_linear_calib = use_linear_calib
         if is_protagonist==True: cur_action_space = env_spec.pro_action_space;
         else: cur_action_space = env_spec.adv_action_space
 
@@ -101,42 +99,10 @@ class GaussianMLPPolicy(StochasticPolicy, LasagnePowered, Serializable):
 
         self.min_std = min_std
 
-        # base (uncalibrated) mean and log_std
-        raw_mean_var, raw_log_std_var = L.get_output([l_mean, l_log_std])
-        # clamp raw log_std as well, to make it a numerically safe model distribution
+        mean_var, log_std_var = L.get_output([l_mean, l_log_std])
+
         if self.min_std is not None:
-            raw_log_std_var = TT.maximum(raw_log_std_var, np.log(self.min_std))
-        self._raw_mean_var, self._raw_log_std_var = raw_mean_var, raw_log_std_var
-
-        # start from raw, then optionally apply calibrator to obtain final distribution
-        mean_var, log_std_var = raw_mean_var, raw_log_std_var
-
-        # Optional per-dim linear calibrator on the Gaussian parameters:
-        # a_raw ~ N(mean, std)
-        # a_calib = w * a_raw + b  =>  a_calib ~ N(w*mean + b, |w|*std)
-        # Here we implement this by transforming mean/log_std:
-        # mean_c = w * mean + b
-        # log_std_c = log_std + log(|w|)
-        self._l_calib_w = None
-        self._l_calib_b = None
-        if use_linear_calib:
-            self._l_calib_w = ParamLayer(
-                l_mean,
-                num_units=action_dim,
-                param=lasagne.init.Constant(1.0),
-                name="calib_w",
-                trainable=True,
-            )
-            self._l_calib_b = ParamLayer(
-                l_mean,
-                num_units=action_dim,
-                param=lasagne.init.Constant(0.0),
-                name="calib_b",
-                trainable=True,
-            )
-            calib_w_var, calib_b_var = L.get_output([self._l_calib_w, self._l_calib_b])
-            mean_var = mean_var * calib_w_var + calib_b_var
-            log_std_var = log_std_var + TT.log(TT.abs_(calib_w_var) + 1e-6)
+            log_std_var = TT.maximum(log_std_var, np.log(min_std))
 
         self._mean_var, self._log_std_var = mean_var, log_std_var
 
@@ -145,37 +111,16 @@ class GaussianMLPPolicy(StochasticPolicy, LasagnePowered, Serializable):
 
         self._dist = dist_cls(action_dim)
 
-        layers = [l_mean, l_log_std]
-        if self._l_calib_w is not None:
-            layers += [self._l_calib_w, self._l_calib_b]
-
-        LasagnePowered.__init__(self, layers)
+        LasagnePowered.__init__(self, [l_mean, l_log_std])
         super(GaussianMLPPolicy, self).__init__(env_spec)
 
-        # compiled functions:
-        #  - _f_dist: final (possibly calibrated) Gaussian parameters
-        #  - _f_raw_dist: raw (pre-calibration) Gaussian parameters
         self._f_dist = ext.compile_function(
             inputs=[obs_var],
-            outputs=[self._mean_var, self._log_std_var],
-        )
-        self._f_raw_dist = ext.compile_function(
-            inputs=[obs_var],
-            outputs=[self._raw_mean_var, self._raw_log_std_var],
+            outputs=[mean_var, log_std_var],
         )
 
     def dist_info_sym(self, obs_var, state_info_vars=None):
-        # raw distribution from network
         mean_var, log_std_var = L.get_output([self._l_mean, self._l_log_std], obs_var)
-        if self.min_std is not None:
-            log_std_var = TT.maximum(log_std_var, np.log(self.min_std))
-
-        # apply optional linear calibrator to match behavior in __init__
-        if self.use_linear_calib and self._l_calib_w is not None:
-            calib_w_var, calib_b_var = L.get_output([self._l_calib_w, self._l_calib_b], obs_var)
-            mean_var = mean_var * calib_w_var + calib_b_var
-            log_std_var = log_std_var + TT.log(TT.abs_(calib_w_var) + 1e-6)
-
         if self.min_std is not None:
             log_std_var = TT.maximum(log_std_var, np.log(self.min_std))
         return dict(mean=mean_var, log_std=log_std_var)
@@ -184,28 +129,16 @@ class GaussianMLPPolicy(StochasticPolicy, LasagnePowered, Serializable):
     def get_action(self, observation):
         flat_obs = self.observation_space.flatten(observation)
         mean, log_std = [x[0] for x in self._f_dist([flat_obs])]
-        raw_mean, raw_log_std = [x[0] for x in self._f_raw_dist([flat_obs])]
         rnd = np.random.normal(size=mean.shape)
         action = rnd * np.exp(log_std) + mean
-        return action, dict(
-            mean=mean,
-            log_std=log_std,
-            raw_mean=raw_mean,
-            raw_log_std=raw_log_std,
-        )
+        return action, dict(mean=mean, log_std=log_std)
 
     def get_actions(self, observations):
         flat_obs = self.observation_space.flatten_n(observations)
         means, log_stds = self._f_dist(flat_obs)
-        raw_means, raw_log_stds = self._f_raw_dist(flat_obs)
         rnd = np.random.normal(size=means.shape)
         actions = rnd * np.exp(log_stds) + means
-        return actions, dict(
-            mean=means,
-            log_std=log_stds,
-            raw_mean=raw_means,
-            raw_log_std=raw_log_stds,
-        )
+        return actions, dict(mean=means, log_std=log_stds)
 
     def get_reparam_action_sym(self, obs_var, action_var, old_dist_info_vars):
         """
